@@ -39,6 +39,26 @@
 \maketitle
 
 \begin{abstract}
+Port mirroring is one of the most common network troubleshooting techiques.
+Switch Port Analyzer, SPAN, allows a user to send a copy of the monitored traffic
+to a local or remote device using a sniffer or packet analyzer.
+Encapsulated Remote SPAN, ERSPAN, extends the basic port mirroring capability
+from Layer 2 to Layer 3, allowing the mirrored traffic to be sent through an IP network. 
+
+ERSPAN was added to Linux kernel in 4.14 for IPv4 and 4.16 for IPv6.
+In this paper, we demonstrate three ways to use the ERSPAN protocol.
+First, using iproute2 to create native tunnel net device.
+Traffic sent to the net device will be encapsulated with the protocol header
+accordingly and traffic matching the protocol configuration will be received
+from the net device.  Second, for eBPF users, using iproute2 to create metadata-mode
+ERSPAN tunnel and attach the tunnel metadata implementation in eBPF code.
+Finally, Open vSwitch users can use netlink interface to create a switch
+and programmatically parse, lookup, and forward the ERSPAN packets based on flows
+installed from the userspace.
+
+\end{abstract}
+
+\section{Introduction}\label{introduction}
 Port mirroring is one of the most common network troubleshooting techniques.
 SPAN (Switch Port Analyzer) allows a user to send a copy of the monitored traffic
 to a local or remote device using a sniffer or packet analyzer.
@@ -56,8 +76,8 @@ an ERSPAN traffic source sending the ERSPAN mirrored traffic to the remote host,
 or an ERSPAN destination which receives and parses the ERSPAN packets generated
 from Cisco or other ERSPAN-capable switches.
   
-We’ve added both the native tunnel support and metadata-mode tunnel support.
-In this paper, we demonstrate three ways to use the ERSPAN protocol.
+We have added both the native tunnel support and metadata-mode tunnel support.
+we demonstrate three ways to use the ERSPAN protocol.
 First, for Linux users, using iproute2 to create native tunnel net device.
 Traffic sent to the net device will be encapsulated with the protocol header
 accordingly and traffic matching the protocol configuration will be received
@@ -68,8 +88,246 @@ Finally, for Open vSwitch users, using the netlink interface to create a switch
 and programmatically parse, lookup, and forward the ERSPAN packets based on flows
 installed from the userspace.
 
-\end{abstract}
+\begin{figure}
+{\scriptsize
+\begin{verbatim}
+                             Linux                    Linux
++----------+         +-------------------+      +---------------+
+| Physical |         |     VM1  VM2 ...  |      |     linux     |
+| Machines |         |      |    |       |      |    netdevs    |
++----------+         |  +--------------+ |      |      |        |
+    | links          |  | Open vSwitch | |      | ERSPAN        |
+    |                |  +--------------+ |      | netdev        |
++------------+       +-------||----------+      +-||------------+ 
+|Cisco switch|               ||                   ||
++------------+               || ERSPAN            || ERSPAN
+   || ERSPAN tunnel          || tunnel            || tunnel
+   ||                        ||                   ||
+    /~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\     +-------+ 
+    {       Layer 3 IPv4, Ipv6 network             } === |Traffic|
+    \~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~/     |Sniffer|
+                                                         +-------+
+\end{verbatim}   
+}
+\vspace{-0.5em}
+\caption{Overview of the ERSPAN tunnel use cases. ERSPAN tunnel can be
+created between }
+\label{overview}
+\vspace{-1.0em}
+\end{figure}
 
-\section{Introduction}\label{introduction}
+ERSPAN is popular in the followin use cases~\ref{erspanietf}:
+\begin{itemize}
+\item Debugging network issues by tracking the control and data frames. 
+\item Monitoring Voice-over-IP, VoIP, packets for delay and jitter analysis
+\item Monitoring network transactions for latency analysis
+\item Monitoring network traffic for anomaly detection
+\end{itemize}
+Figure~\ref{fig:overview} shows an example setup of ERSPAN tunnels.
+A network administrator first sets up multiple source network devices
+and filters the interested portion of the traffic he/she wants
+to inspect.  One case on the left-most is to create the ERSPAN tunnel
+between the Cisco switch and a traffic sniffer.  Depending on the
+features in the Cisco switch, different filters can be applied to the
+traffic.  In the middle of the figure, for multiple virtual machines running
+inside a Linux box, the virtual switch forwarding the packet between
+virtual and physical network can also create ERSPAN tunnels between
+the software switch and remote traffic sniffer.
+Here, Open vSwitch~\cite{ovs} is an example capabale of creating filters
+and forward packets to ERSPAN tunnels. More detailed configurations of
+Open vSwitch is described in later section. 
 
+The ERSPAN tunnel is represented in Linux as a netdev and configured
+through iproute2~\cite{iproute2}. Any packet that is placed into its send
+queue will be encapsulated based on the netdev's ERSPAN configuration.  
+As a result on the right-most, any other linux netdev which wants to create
+a ERSPAN mirrored packet simply make a copy and forward to the ERSPAN netdev.
+For example, a physical netdev can use TC~\cite{tc} to copy a packet
+to the erspan tunnel~\cite{tcselftest}.
+
+Mirrored traffic arrives at the sniffer machine needs to be able to
+extract and restore the original monitored frame.
+For Linux user, an ERSPAN tunnel can also be used at the sniffer size.
+Any packet arriving at the ERSPAN tunnel netdev's receive queue will
+be decapsulated. Tools such as Wireshark~\cite{wireshark} can be used
+to inspect the mirrored packet.
+
+\section{ERSPAN Protocol}
+ERSPAN protocol was developed by Cisco and its specification is published at IETF
+draft~\cite{erspan}.  
+Figure~\ref{fig:erspanhdr} shows an example of ERSPAN encapsulated
+packet, with outer header consists of Ethernet header, followed by IPv4/IPv6
+header, followed by a fixed 8-byte GRE header, and followed by ERSPAN header.
+After the ERSPAN header, the inner frame is followed so that the ERSPAN receiver
+or packet sniffer can extract the original frame.
+The use of the IP protocol as part of the outer header is important because it
+makes the mirrored traffic routable across any IP network.
+
+ERSPAN protocol has two versions; version 1 (type II) and
+version 2 (type III). ERSPAN protocol is layered on top of the GRE (Generic Routing
+Encapsulation) protocol, with GRE's sequence number enabled.  For ERSPAN type II,
+the GRE's next protocol type is 0x88BE with 8-byte ERSPAN header size, and for
+ERSPAN type III, the GRE's next protocol type is 0x22EB with 12-byte ERSPAN header
+size, if no optinal subheader enabled.
+The following subsection describes the two ERSPAN header formats.
+
+\begin{figure}
+{\scriptsize
+\begin{verbatim}
+<------------ outer -------------->  <---- inner ----...
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+| Ether |  IP  |  GRE  |  ERSPAN  | Ether |  IP  | ...   
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+\end{verbatim}
+}
+\vspace{-1.0em}
+\caption{An example of mirrored packet with outer header containing
+the GRE and ERSPAN header, followed by the innter Ethernet frame.}
+\label{erspanhrd}
+\vspace{-1.0em}
+\end{figure}
+
+\subsection{GRE header}
+{\scriptsize
+\begin{verbatim}
+GRE header for ERSPAN encapsulation (8 octets [34:41]) -- 8 bytes
+0                   1                   2                   3
+0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|0|0|0|1|0|00000|000000000|00000|    Protocol Type for ERSPAN   |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|      Sequence Number (increments per packet per session)      |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+\end{verbatim}
+}
+Note that in the above GRE header [RFC1701] out of the C, R, K, S,
+s, Recur, Flags, Version fields only S (bit 03) is set to 1. The
+other fields are set to zero, so only a sequence number follows.
+
+Sequence number is useful in many cases that
+when the mirrored traffic is re-ordered.
+
+\subsection{ERSPAN Type II}
+ERSPAN type II has 8-byte feature header with the following format.
+{\scriptsize
+\begin{verbatim}
+ERSPAN Version 1 (Type II) header (8 octets [42:49])
+0                   1                   2                   3
+0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|  Ver  |          VLAN         | COS | En|T|    Session ID     |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|      Reserved         |                  Index                |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+\end{verbatim}
+}
+
+The ERSPAN Type II encapsulation adds to the original
+frame a composite header comprising: 14 (802.3) + 20 (IP) + 8 (GRE)
+ + 8 (ERSPAN) octets, in addition to a trailing 4-octet Ethernet CRC.
+(Note that an 802.1Q encapsulation [802.1Q] would add 4 additional
+octets but not reduce the Ethernet MTU size of the container frame.
+
+VLAN riginal VLAN of the frame.
+
+COS
+Class of Service of the monitored frame.
+
+En
+The trunk encapsulation type associated with the ERSPAN source port for  ingress ERSPAN traffic.
+T
+Indicates that the frame copy encapsulated in the ERSPAN packet has been truncated
+Session ID
+Identification associated with each ERSPAN session
+Index
+Index associated with the ERSPAN traffic's source port and direction, this field is platform dependent.
+
+\subsection{ERSPAN Type III}
+{\scriptsize
+\begin{verbatim}
+ERSPAN Version 2 (Type III) header (12 octets [42:49])
+0                   1                   2                   3
+0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|  Ver  |          VLAN         | COS |BSO|T|     Session ID    |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                          Timestamp                            |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|             SGT               |P|    FT   |   Hw ID   |D|Gra|O|
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+\end{verbatim}
+}
+
+Type III introduces a larger and more flexible composite header to
+support additional fields useful for applications such as network
+management, intrusion detection, performance and latency analysis
+etc. that require to know all the original parameters of the
+mirrored frame, including those not present in the original frame
+itself.
+
+The ERSPAN Type III composite header includes a mandatory 12-octet
+portion followed by an optional 8-octet platform specific sub-header
+
+ERSPAN Type III supports all of the ERSPAN type II features and
+functionality and adds these enhancements:
+Provides timestamp information in the ERSPAN Type III header that can
+be used to calculate packet latency among edge, aggregate, and core switches.
+Identifies possible traffic sources using the ERSPAN Type III header fields
+
+Provides the ability to configure timestamp granularity across all VDCs to
+determine how the clock manager synchronizes the ERSPAN timers
+
+\section{Implementation}
+The use of the IP protocol as part of the transport is critical to
+be able to carry the mirrored traffic across any IP-based network.
+The GRE component instead is particularly important to be able to
+piggyback different data formats along with the copy of the original
+frame.
+
+ERSPAN can carry either  
+ERSPAN for IPv4 was implemented under net/ipv4/ip\_gre.c and was
+upstreamed to Linux kernel in 4.14~\cite{erspanipv4}.
+The ERSPAN for IPv6
+
+\subsection{IPv4}
+
+gre: introduce native tunnel support for ERSPAN
+
+The ERSPAN implementation for IPV
+\subsection{IPv6}
+\subsection{Limitation}
+DF bit is set to prevent fragmentation
+• GRE Header protocol type of 0x88BE
+• PFC3 and above supports ERSPAN (sup720, sup32)
+• Cisco ASR supports ERSPAN as well
+• ERSPAN ID uniquely identifies source sessions
+
+%https://sharkfestus.wireshark.org/sharkfest.10/D-2_Chung%20A%20Variety%20of%20Ways%20to%20Capture%20and%20Analyze%20Packets.pdf
+
+\subsection{fragmentation}
+\section{Use Cases}
+Port mirroring and monitoring overview
+Port mirroring is a method of monitoring network traffic that forwards a copy of each incoming or outgoing packet from one port on a network switch to another port where the packet can be analyzed. Port mirroring can be used as a diagnostic tool or debugging feature, especially for preventing attacks. Port mirroring can be managed locally or remotely.
+You can configure port mirroring, by assigning a port (known as the Monitor port), from which the packets are copied and sent to a destination port (known as the Mirror port). All packets received on the Monitor port or issued from it, are forwarded to the second port. You next attach a protocol analyzer on the mirror port to monitor each segment separately. The analyzer captures and evaluates the data without affecting the client on the original port.
+
+\subsection{Linux iproute2}\label{iproute2}
+\subsection{eBPF}\label{ebpf}
+\subsection{Open vSwitch}\label{ovs}
+\subsection{Cisco Switch}
+    gre: introduce native tunnel support for ERSPAN
+
+\begin{verbatim}
+    monitor session 100 type erspan-source
+      erspan-id 123
+      vrf default
+      destination ip 172.16.1.200
+      source interface Ethernet1/11 both
+      source interface Ethernet1/12 both
+      no shut
+    monitor erspan origin ip-address 172.16.1.100 global
+\end{verbatim}
+
+\section{Conclusion}
+\section{Acknowledgments}
+\section{Future Work}
 \end{document}
