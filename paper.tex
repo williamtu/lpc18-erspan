@@ -29,8 +29,9 @@
 \authorinfo{
   \(
   \begin{matrix}
-    \textrm{Greg Rose} & \textrm{William Tu} \\
-    \textrm{roseg@vmware.com} & \textrm{tuc@vmware.com} \\
+    \textrm{William Tu} & \textrm{Greg Rose} \\
+    \textrm{VMware Inc.} & \textrm{VMware Inc.} \\
+    \textrm{u9012063@gmail.com} & \textrm{gvrose8192@gmail.com} \\
   \end{matrix}
   \)
 }
@@ -116,14 +117,14 @@ created between }
 \vspace{-1.0em}
 \end{figure}
 
-ERSPAN is popular in the followin use cases~\ref{erspanietf}:
+ERSPAN is popular in the followin use cases~\cite{erspan_ietf}:
 \begin{itemize}
 \item Debugging network issues by tracking the control and data frames. 
 \item Monitoring Voice-over-IP, VoIP, packets for delay and jitter analysis
 \item Monitoring network transactions for latency analysis
 \item Monitoring network traffic for anomaly detection
 \end{itemize}
-Figure~\ref{fig:overview} shows an example setup of ERSPAN tunnels.
+Figure~\ref{overview} shows an example setup of ERSPAN tunnels.
 A network administrator first sets up multiple source network devices
 and filters the interested portion of the traffic he/she wants
 to inspect.  One case on the left-most is to create the ERSPAN tunnel
@@ -146,16 +147,34 @@ For example, a physical netdev can use TC~\cite{tc} to copy a packet
 to the erspan tunnel~\cite{tcselftest}.
 
 Mirrored traffic arrives at the sniffer machine needs to be able to
-extract and restore the original monitored frame.
+extract and restore the original monitored frame.  To differentiated
+the three use cases, the administrator can create three ERSPAN session
+ID, a configuration parameter for grouping the mirrored traffic.
 For Linux user, an ERSPAN tunnel can also be used at the sniffer size.
 Any packet arriving at the ERSPAN tunnel netdev's receive queue will
 be decapsulated. Tools such as Wireshark~\cite{wireshark} can be used
 to inspect the mirrored packet.
 
-\section{ERSPAN Protocol}
+\section{ERSPAN Protocol Implementation}
+\begin{figure}
+{\scriptsize
+\begin{verbatim}
+<------------ outer -------------->  <---- inner ----...
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+| Ether |  IP  |  GRE  |  ERSPAN  | Ether |  IP  | ...   
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+\end{verbatim}
+}
+\vspace{-1.0em}
+\caption{An example of mirrored packet with outer header containing
+the GRE and ERSPAN header, followed by the innter Ethernet frame.}
+\label{erspanhdr}
+\vspace{-1.0em}
+\end{figure}
+
 ERSPAN protocol was developed by Cisco and its specification is published at IETF
-draft~\cite{erspan}.  
-Figure~\ref{fig:erspanhdr} shows an example of ERSPAN encapsulated
+draft~\cite{erspan_ietf}. 
+Figure~\ref{erspanhdr} shows an example of ERSPAN encapsulated
 packet, with outer header consists of Ethernet header, followed by IPv4/IPv6
 header, followed by a fixed 8-byte GRE header, and followed by ERSPAN header.
 After the ERSPAN header, the inner frame is followed so that the ERSPAN receiver
@@ -169,25 +188,46 @@ Encapsulation) protocol, with GRE's sequence number enabled.  For ERSPAN type II
 the GRE's next protocol type is 0x88BE with 8-byte ERSPAN header size, and for
 ERSPAN type III, the GRE's next protocol type is 0x22EB with 12-byte ERSPAN header
 size, if no optinal subheader enabled.
-The following subsection describes the two ERSPAN header formats.
 
-\begin{figure}
-{\scriptsize
-\begin{verbatim}
-<------------ outer -------------->  <---- inner ----...
-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-| Ether |  IP  |  GRE  |  ERSPAN  | Ether |  IP  | ...   
-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-\end{verbatim}
-}
-\vspace{-1.0em}
-\caption{An example of mirrored packet with outer header containing
-the GRE and ERSPAN header, followed by the innter Ethernet frame.}
-\label{erspanhrd}
-\vspace{-1.0em}
-\end{figure}
+In this section we describe the basic ERSPAN protocol header format
+along with its implementation to Linux kernel.
+For IPv4/IPv6, the implementation is under net/ipv4/ip\_gre.c and
+net/ipv6/ip6\_gre.c. Also a userspace API header, include/uapi/linux/erspan.h
+is added for metadata-mode tunnel users.
 
-\subsection{GRE header}
+\subsection{Native v.s Metadata-Mode Tunnel}
+%https://netdevconf.org/1.2/papers/borkmann.pdf
+There are two tunnel type implementations in Linux kernel:
+native tunnel and metadata-mode tunnel~\cite{lwtunnel}.
+Native tunnel is the basic way of creating tunnels in Linux.
+A tunnel netdev is created with per tunnel-specific configuration,
+tied together with the netdev. For example, creating a GRE tunnel
+with key and sequence number can be done by:
+\texttt{ip link add dev gre123 type gretap local 1.1.1.1 remote 2.2.2.2 seq key 0xfb}.
+As a result, $N$ different tunnel configurations require creating
+$N$ number of netdevs.  In certain cases such as network virtualization,
+this is not scalable because every host in the network creates
+mutiple tunnels with different configurations to every other hosts~\cite{mvp}.
+
+Metada-mode tunnel, or light weight tunnel, is designed for solving
+the limitation.  The fundamental idea is that only one netdev per
+tunnel type is required to represent multiple tunnels.
+This means that the tunnel configuration of a particular type
+of the tunnel must be passed to the tunnel netdev in order
+to encapsulate the packet.  For example, creating a metadata-mode
+tunnel can be done by:
+\texttt{ip link add dev type gretap external}.
+Note that there is no configuration parameters assigned at device creation
+time. The tunnel configuration is set-up per-packet at run-time.
+Currently there are two ways of using metadata-mode tunnel, one through
+OVS and the other through eBPF~\cite{dborkman}.
+We implement both the native mode and metadata-mode~\cite{erspanmd}
+for ERSPAN type II and type III.
+More examples of using native and metadata-mode tunnel are upstreamed
+under tools/testing/selftest/bpf/\{test\_tunnel.sh, test\_tunnel\_kern.c\}.
+
+\subsection{GRE}
+ERSPAN follows a fixed 8-byte GRE header with the below value.
 {\scriptsize
 \begin{verbatim}
 GRE header for ERSPAN encapsulation (8 octets [34:41]) -- 8 bytes
@@ -200,12 +240,25 @@ GRE header for ERSPAN encapsulation (8 octets [34:41]) -- 8 bytes
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 \end{verbatim}
 }
-Note that in the above GRE header [RFC1701] out of the C, R, K, S,
-s, Recur, Flags, Version fields only S (bit 03) is set to 1. The
-other fields are set to zero, so only a sequence number follows.
+Note that only the sequence number bit in the FLAGS fields is set.
+Sequence number is useful at the snifffer site where the mirrored
+traffic arrives out-of-the-order.  Depending on the protocol type,
+ERSPAN type II or type III is followed next.
+% note: we do not implement per session seq number?
 
-Sequence number is useful in many cases that
-when the mirrored traffic is re-ordered.
+\textbf{Implementation: }
+%commit: gre: add sequence number for collect md mode.
+Before introducing ERSPAN, Linux kernel already supports IPv4 GRE native
+and metadata mode.  So our effort is to purely add ERSPAN implementation
+on top of existing GRE code base~\cite{erspantype2}.
+One minor limitation is that existing metadata-mode does not support
+GRE sequence number, we've upstreamed the implementation~\cite{greseq}.
+
+For IPv6, there is no metadata mode feature before 4.16.
+We first implemented the metadata-mode support for IPv6 GRE~\cite{ip6md},
+then upstreamed the ERSPAN feature~\cite{ip6erspanmd, ip6erspan}.
+%commit 6712abc168ebac90b46 ip6_gre: add ip6 gre and gretap collect_md mode
+
 
 \subsection{ERSPAN Type II}
 ERSPAN type II has 8-byte feature header with the following format.
@@ -221,28 +274,35 @@ ERSPAN Version 1 (Type II) header (8 octets [42:49])
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 \end{verbatim}
 }
-
 The ERSPAN Type II encapsulation adds to the original
-frame a composite header comprising: 14 (802.3) + 20 (IP) + 8 (GRE)
- + 8 (ERSPAN) octets, in addition to a trailing 4-octet Ethernet CRC.
-(Note that an 802.1Q encapsulation [802.1Q] would add 4 additional
-octets but not reduce the Ethernet MTU size of the container frame.
-
-VLAN riginal VLAN of the frame.
-
-COS
+frame a composite header comprising: 14-byte (802.3) + 20-byte (IP)
++ 8-byte (GRE)  + 8-byte (ERSPAN), in addition to a trailing 4-byte
+Ethernet CRC.
+The VLAN field shows the original VLAN of the frame, the COS means
 Class of Service of the monitored frame.
+En field shows the trunk encapsulation type associated with the ERSPAN
+source port.
+When the mirrored frame is truncated, T bit is set to indicate the
+frame has been truncated.
+Session ID is a 10-bit field as an identification of each ERSPAN mirring
+session.
+Index is a platform-depedent field for specifying port number and direction.
 
-En
-The trunk encapsulation type associated with the ERSPAN source port for  ingress ERSPAN traffic.
-T
-Indicates that the frame copy encapsulated in the ERSPAN packet has been truncated
-Session ID
-Identification associated with each ERSPAN session
-Index
-Index associated with the ERSPAN traffic's source port and direction, this field is platform dependent.
+%\noindent
+\textbf{Implementation: }
+Type II introduces two new configurable fields to netlink API;
+the Session ID and Index.
+Session ID is configured by users through iproute2 tool with netlink API. 
+Since ERSPAN does not use the GRE Key field, we re-use the
+\texttt{IFLA\_GRE\_IKEY, IFLA\_GRE\_OKEY} as the session ID field.
+Index is also configurable by users through iproute2.
+The COS field and VLAN field are extrated from the original frame and set
+properly.  The truncate bit is detected by comparing the the mirrored frame's
+skb->len and the length its IP header reports~\cite{erspantruncate}.
+%commit: erspan: auto detect truncated packets.
 
 \subsection{ERSPAN Type III}
+ERSPAN type III has 12-byte feature header with the following format.
 {\scriptsize
 \begin{verbatim}
 ERSPAN Version 2 (Type III) header (12 octets [42:49])
@@ -257,34 +317,33 @@ ERSPAN Version 2 (Type III) header (12 octets [42:49])
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 \end{verbatim}
 }
+Type III introduces more flexible composite header to support additional
+fields.  BSO, Bad/Short/Oversized, allows the sniffer to identify whether
+the frame payload has CRC error, too short, or too large~\cite{bso}.
+Timestamp is a 4-byte fields and can be configured with different granularities
+(100 microseconds, 100 nanosecond, or IEEE1588) at the Gra field.
+SGT stands for security group tag of the monitored frame, P field
+indicates that the ERSPAN payload is an Ethernet protocol frame.
+FT,Frame Type, indicates whether the mirrored frame is a Ethernet
+802.3 frame, or a IP packet.
+Hardware ID, Hw ID, is an unique identifier of an ERSPAN engine
+Direction bit, D, indicates whether the original frame was
+SPAN'ed in ingress(0) or in egress(1).
+Finally, O indicates whether or not the optinal platform-specific
+subheader is presented.
 
-Type III introduces a larger and more flexible composite header to
-support additional fields useful for applications such as network
-management, intrusion detection, performance and latency analysis
-etc. that require to know all the original parameters of the
-mirrored frame, including those not present in the original frame
-itself.
+\textbf{Implementation: }
+For type III, we introduced another two fields to kernel through
+netlink API; hardware ID and direction.
+The COS, BSO, and T fields can be extracted or inferred from the mirrored
+frame. Timestamp value is calculated by calling the kernel
+\texttt{ktime\_get\_real()} with 100 microseconds granularity.
+Currently we do not support other timer granulartiy.
+In addition, the SGT is hard-coded to 0, non-ethernet mirrored packet
+is not supported, so FT is always 0 and P is set to 1.
+There is no implementation of sub-headers, so O bit is 0.
 
-The ERSPAN Type III composite header includes a mandatory 12-octet
-portion followed by an optional 8-octet platform specific sub-header
-
-ERSPAN Type III supports all of the ERSPAN type II features and
-functionality and adds these enhancements:
-Provides timestamp information in the ERSPAN Type III header that can
-be used to calculate packet latency among edge, aggregate, and core switches.
-Identifies possible traffic sources using the ERSPAN Type III header fields
-
-Provides the ability to configure timestamp granularity across all VDCs to
-determine how the clock manager synchronizes the ERSPAN timers
-
-\section{Implementation}
-The use of the IP protocol as part of the transport is critical to
-be able to carry the mirrored traffic across any IP-based network.
-The GRE component instead is particularly important to be able to
-piggyback different data formats along with the copy of the original
-frame.
-
-ERSPAN can carry either  
+\section{Use Cases}
 ERSPAN for IPv4 was implemented under net/ipv4/ip\_gre.c and was
 upstreamed to Linux kernel in 4.14~\cite{erspanipv4}.
 The ERSPAN for IPv6
@@ -330,4 +389,8 @@ You can configure port mirroring, by assigning a port (known as the Monitor port
 \section{Conclusion}
 \section{Acknowledgments}
 \section{Future Work}
+
+\bibliography{paper.bib}                                                                                                   
+\bibliographystyle{plain}
+
 \end{document}
