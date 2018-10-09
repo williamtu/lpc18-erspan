@@ -5,7 +5,7 @@
 \usepackage{listings}
 \usepackage{amsmath}
 \usepackage[font={small}]{caption}
-
+\newcommand{\mycomment}[1]{}
 \newcommand{\dfn}[1]{\textit{#1}} % For initial definitions of terms
 
 % For marking text we're probably dropping.
@@ -343,54 +343,113 @@ In addition, the SGT is hard-coded to 0, non-ethernet mirrored packet
 is not supported, so FT is always 0 and P is set to 1.
 There is no implementation of sub-headers, so O bit is 0.
 
-\section{Use Cases}
-ERSPAN for IPv4 was implemented under net/ipv4/ip\_gre.c and was
-upstreamed to Linux kernel in 4.14~\cite{erspanipv4}.
-The ERSPAN for IPv6
-
-\subsection{IPv4}
-
-gre: introduce native tunnel support for ERSPAN
-
-The ERSPAN implementation for IPV
-\subsection{IPv6}
-\subsection{Limitation}
-DF bit is set to prevent fragmentation
-• GRE Header protocol type of 0x88BE
-• PFC3 and above supports ERSPAN (sup720, sup32)
-• Cisco ASR supports ERSPAN as well
-• ERSPAN ID uniquely identifies source sessions
-
-%https://sharkfestus.wireshark.org/sharkfest.10/D-2_Chung%20A%20Variety%20of%20Ways%20to%20Capture%20and%20Analyze%20Packets.pdf
-
-\subsection{fragmentation}
-\section{Use Cases}
-Port mirroring and monitoring overview
-Port mirroring is a method of monitoring network traffic that forwards a copy of each incoming or outgoing packet from one port on a network switch to another port where the packet can be analyzed. Port mirroring can be used as a diagnostic tool or debugging feature, especially for preventing attacks. Port mirroring can be managed locally or remotely.
-You can configure port mirroring, by assigning a port (known as the Monitor port), from which the packets are copied and sent to a destination port (known as the Mirror port). All packets received on the Monitor port or issued from it, are forwarded to the second port. You next attach a protocol analyzer on the mirror port to monitor each segment separately. The analyzer captures and evaluates the data without affecting the client on the original port.
-
-\subsection{Linux iproute2}\label{iproute2}
-\subsection{eBPF}\label{ebpf}
-\subsection{Open vSwitch}\label{ovs}
-\subsection{Cisco Switch}
-    gre: introduce native tunnel support for ERSPAN
-
+\section{Example Use Case}
+\begin{figure}
+{\scriptsize
 \begin{verbatim}
-    monitor session 100 type erspan-source
-      erspan-id 123
+ session 10            Linux, session 20        Linux, session 30
++----------+         +-------------------+      +----------------+
+| Physical |         |     VM1  VM2 ...  |      |     linux      |
+| Machines |         | 10.1.1.3  |       |      |    netdevs     |
++----------+         |  +--------------+ |      |      |         |
+    | links          |  | Open vSwitch | |      | ERSPAN 10.1.1.4|
+    | 10.1.1.2       |  +--------------+ |      | netdev         |
++------------+       +-------||----------+      +-||------------+ 
+|Cisco switch|               ||                   ||
++------------+               || ERSPAN            || ERSPAN
+   || ERSPAN tunnel          || tunnel            || tunnel
+   || (192.168.1.2)          || (192.168.1.3)     || (192.168.1.4)
+    /~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\     +-------+ 
+    {       Layer 3 IPv4, Ipv6 network             } === |Traffic|
+    \~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~/     |Sniffer|
+                192.168.1.*                              +-------+
+                                                        192.168.1.1
+\end{verbatim}   
+}
+\vspace{-0.5em}
+\caption{Example of creating three ERSPAN monitoring sessions, $10, 20, 30$,
+in a $10.1.1.*$ internal network, mirroring traffic over a $192.168.1.*$ IP network.}
+\label{example}
+\vspace{-1.0em}
+\end{figure}
+
+We use Figure~\ref{example} as an example topology to demostrate
+the three configuration ways of ERSPAN.
+Assuming a network administrator wants to monitor a network consists
+of 1) physical machines connected to Cisco switches, 2)
+virtualized Linux machine with multiple VMs deployed and virtual switch
+(openvswitch.ko) enforcing the fowarding policies, and
+3) non-virtualized Linux physical machines, e.g., service nodes
+in data center such as gateways.
+Assuming all the monitored servers are under IP subnet of $10.1.1.*$,
+and We place a traffic sniifer over another IP network of $192.168.1.*$.
+The following subsection describes the configuration for each case.
+
+\subsection{Cisco Switch}
+We use Nexus 5000 switch and configure its ERSPAN tunnel
+on ports 11 and 12 as below.
+\begin{verbatim}
+    monitor session 10 type erspan-source
+      erspan-id 10
       vrf default
-      destination ip 172.16.1.200
+      destination ip 192.168.1.1
       source interface Ethernet1/11 both
       source interface Ethernet1/12 both
       no shut
-    monitor erspan origin ip-address 172.16.1.100 global
+    monitor erspan origin ip-address 192.168.1.2 global
 \end{verbatim}
 
-\section{Conclusion}
-\section{Acknowledgments}
-\section{Future Work}
+\subsection{openvswitch.ko}\label{ovs}
+Open vSwitch consists of a userspace daemon, ovs-vswitchd, and a kernel
+datapath implementation, openvswitch.ko.
+This example shows a case where we only use the netlink API and openvswitch.ko
+module, without the ovs-vswitchd daemon.
+ovs-dpctl is a stand-alone tool which programs openvswitch.ko
+through network api, see Joes' paper
+\begin{verbatim}
+ip link add dev myerspan type erspan external
+ovs-dpctl add-dp mydp
+ovs-dpctl add-if mydp myerspan
+ovs-dpctl add-if mydp veth1 // connected to VM1
+ovs-dpctl add-flow \
+    "in_port(2)" \  // any packets matching in_port=2
+    "set(tunnel(tun_id=20,dst=192.168.1.1,ttl=64,\
+    erspan(ver=2,dir=1,hwid=0x4),flags(df|key))),3"
+\end{verbatim}
 
-\bibliography{paper.bib}                                                                                                   
+\subsection{eBPF and iproute2}\label{iproute2}
+
+Assuming we want to make a copy of all traffic from the physical
+device eth1, and encapsulate them through ERSPAN tunnel.
+We first create a native-mode ERSPAN tunnel using ip-link command,
+and make a copy of all traffic from eth1 to the ERSPAN tunnel netdev.
+%see net/ip6_gre_headroom.sh
+\begin{verbatim}
+ip link add dev myerspan type erspan seq key 30 \
+    local 192.168.1.4 remote 192.168.1.1 \
+    erspan_ver 1 erspan 123
+tc filter add dev eth1 ingress pref 1000 matchall skip_hw \
+    action mirred egress mirror dev myerspan
+\end{verbatim}
+
+For the eBPF tunnel cases,
+we create a metadata mode erspan tunnel, and set the
+remote ip and tunnel id to 30, attach the eBPF program,
+and create the fowarding rule using tc.
+\begin{verbatim}
+ip link add dev myerspan type erspan external
+tc qdisc add dev myerspan clsact
+tc filter add dev myerspan bpf da obj test_tunnel_kern.o section set_erspan
+tc filter add dev eth1 ingress pref 1000 matchall skip_hw \
+    action mirred egress mirror dev myerspan
+\end{verbatim}
+
+
+\section{Conclusion}
+\section{Future Work}
+\section{Acknowledgments}
+
+\bibliography{paper.bib}
 \bibliographystyle{plain}
 
 \end{document}
