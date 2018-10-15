@@ -350,7 +350,7 @@ There is no implementation of sub-headers, so O bit is 0.
  session 10            Linux, session 20        Linux, session 30
 +----------+         +-------------------+      +----------------+
 | Physical |         |     VM1  VM2 ...  |      |     linux      |
-| Machines |         | 10.1.1.3  |       |      |    netdevs     |
+| Machines |         | 10.1.1.3  |       |      |   netdev,eth1  |
 +----------+         |  +--------------+ |      |      |         |
     | links          |  | Open vSwitch | |      | ERSPAN 10.1.1.4|
     | 10.1.1.2       |  +--------------+ |      | netdev         |
@@ -424,46 +424,97 @@ ovs-dpctl add-if mydp myerspan
 
 # flow entry for port 2 to erspan tunnel 
 ovs-dpctl add-flow \
-    "in_port(2)" \  // any packets matching in_port=2
+    "in_port(2)" \
     "set(tunnel(tun_id=20,dst=192.168.1.1,ttl=64,\
     erspan(ver=2,dir=1,hwid=0x4),flags(df|key))),3"
 \end{verbatim}
 
-%\begin{lstlisting}[caption={Example ovs-dpctl usage},language=bash,label=lst:dpctl,breaklines=true]
+%\begin{lstlisting}
+%[caption={Example ovs-dpctl usage},language=bash,label=lst:dpctl,breaklines=true]
 %\end{lstlisting}
 
-\subsection{eBPF and iproute2}\label{iproute2}
+\subsection{iproute2 with/without eBPF}\label{iproute2}
+Assuming we want to mirror all traffic from the physical device eth1
+to an ERSPAN tunnel with session ID 30, as shown in the right Figure~\ref{example},
+we first create a native-mode ERSPAN tunnel using ip-link command,
+and mirror traffic from eth1 to the ERSPAN tunnel netdev.
+For eBPF use case, instead of creating native-mode tunnel, we create
+a metadata-mode tunnel using the key word "external".
+Then, tc qdisc and filter rules are created for a eBPF program~\cite{daniel1,daniel2},
+"test\_tunnel\_kern.o" with section name "set\_erspan" to be executed,
+when receiving a packet from eth1 and sending through the "myerspan"
+tunnel device.
 
-Assuming we want to make a copy of all traffic from the physical
-device eth1, and encapsulate them through ERSPAN tunnel.
-We first create a native-mode ERSPAN tunnel using ip-link command,
-and make a copy of all traffic from eth1 to the ERSPAN tunnel netdev.
 %see net/ip6_gre_headroom.sh
 \begin{verbatim}
+# Native-mode without using eBPF
 ip link add dev myerspan type erspan seq key 30 \
     local 192.168.1.4 remote 192.168.1.1 \
     erspan_ver 1 erspan 123
-tc filter add dev eth1 ingress pref 1000 matchall skip_hw \
-    action mirred egress mirror dev myerspan
-\end{verbatim}
+tc filter add dev eth1 ingress pref 1000 matchall \
+    skip_hw action mirred egress mirror dev myerspan
 
-For the eBPF tunnel cases,
-we create a metadata mode erspan tunnel, and set the
-remote ip and tunnel id to 30, attach the eBPF program,
-and create the fowarding rule using tc.
-\begin{verbatim}
+# Metadata-mode with eBPF
 ip link add dev myerspan type erspan external
 tc qdisc add dev myerspan clsact
-tc filter add dev myerspan bpf da obj test_tunnel_kern.o section set_erspan
-tc filter add dev eth1 ingress pref 1000 matchall skip_hw \
-    action mirred egress mirror dev myerspan
+tc filter add dev myerspan egress bpf direct-action \
+    obj test_tunnel_kern.o section erspan_set_tunnel
+tc filter add dev eth1 ingress pref 1000 matchall \
+    skip_hw action mirred egress mirror dev myerspan
 \end{verbatim}
 
+Note that for metadata-mode tunnel, the tunnel configuration is not
+provided from the ip route command line, but is passed in to the tunnel
+by the eBPF program, test\_tunnel\_kern.o. A code snippet creating this
+object from tools/testing/selftests/bpf/test\_tunnel\_kern.c is shown below.
+{\scriptsize
+\begin{verbatim}
+SEC("erspan_set_tunnel")
+int _erspan_set_tunnel(struct __sk_buff *skb)
+{
+        struct bpf_tunnel_key key;
+        struct erspan_metadata md; 
+        int ret;
 
-\section{Conclusion}
-\section{Future Work}
+        __builtin_memset(&key, 0x0, sizeof(key));
+        key.remote_ipv4 = 0xc0a80101; /* 192.168.1.100 */
+        key.tunnel_id = 30; // session ID
+        key.tunnel_tos = 0;
+        key.tunnel_ttl = 64;
+
+        ret = bpf_skb_set_tunnel_key(skb, &key, sizeof(key),
+                                     BPF_F_ZERO_CSUM_TX);
+        if (ret < 0) {
+                ERROR(ret);
+                return TC_ACT_SHOT;
+        }
+
+        __builtin_memset(&md, 0, sizeof(md));
+        md.version = 1;
+        md.u.index = bpf_htonl(123);
+
+        ret = bpf_skb_set_tunnel_opt(skb, &md, sizeof(md));
+        if (ret < 0) {
+                ERROR(ret);
+                return TC_ACT_SHOT;
+        }
+
+        return TC_ACT_OK;
+}
+\end{verbatim}
+}
+\section{Conclusion and Future Work}
+\mycomment{
 \section{Acknowledgments}
-
+The authors would like to acknowledge Justin Pettit for his guidance on writing
+this paper, Martynas Pumputis for providing context around WeaveNet, and Ben
+Pfaff, Hannes Sowa and Yingying Ren for providing review feedback.
+\section{Author Biography}
+Joe Stringer is a software engineer interested in networks and related fields,
+in particular SDN. He is actively engaged in the open-source community on
+network software projects including Open vSwitch and the Linux networking
+stack.
+}
 \bibliography{paper.bib}
 \bibliographystyle{plain}
 
