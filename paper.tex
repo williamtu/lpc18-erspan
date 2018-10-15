@@ -143,8 +143,8 @@ through iproute2~\cite{iproute2}. Any packet that is placed into its send
 queue will be encapsulated based on the netdev's ERSPAN configuration.  
 As a result on the right-most, any other linux netdev which wants to create
 a ERSPAN mirrored packet simply make a copy and forward to the ERSPAN netdev.
-For example, a physical netdev can use TC~\cite{tc} to copy a packet
-to the erspan tunnel~\cite{tcselftest}.
+For example, a physical netdev can use linux TC~\cite{tcsubsys} with mirror
+action to copy a packet to the erspan tunnel.
 
 Mirrored traffic arrives at the sniffer machine needs to be able to
 extract and restore the original monitored frame.  To differentiated
@@ -152,14 +152,14 @@ the three use cases, the administrator can create three ERSPAN session
 ID, a configuration parameter for grouping the mirrored traffic.
 For Linux user, an ERSPAN tunnel can also be used at the sniffer size.
 Any packet arriving at the ERSPAN tunnel netdev's receive queue will
-be decapsulated. Tools such as Wireshark~\cite{wireshark} can be used
-to inspect the mirrored packet.
+be decapsulated. Tools such as Wireshark~\cite{wireshark_erspan,wireshark_erspan2}
+can be used to inspect the mirrored packet.
 
 \section{ERSPAN Protocol Implementation}
 \begin{figure}
 {\scriptsize
 \begin{verbatim}
-<------------ outer -------------->  <---- inner ----...
+<------------ outer -------------> <---- inner ---- ...
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 | Ether |  IP  |  GRE  |  ERSPAN  | Ether |  IP  | ...   
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
@@ -207,7 +207,7 @@ with key and sequence number can be done by:
 As a result, $N$ different tunnel configurations require creating
 $N$ number of netdevs.  In certain cases such as network virtualization,
 this is not scalable because every host in the network creates
-mutiple tunnels with different configurations to every other hosts~\cite{mvp}.
+mutiple tunnels with different configurations to every other hosts~\cite{nvp}.
 
 Metada-mode tunnel, or light weight tunnel, is designed for solving
 the limitation.  The fundamental idea is that only one netdev per
@@ -381,13 +381,15 @@ virtualized Linux machine with multiple VMs deployed and virtual switch
 (openvswitch.ko) enforcing the fowarding policies, and
 3) non-virtualized Linux physical machines, e.g., service nodes
 in data center such as gateways.
-Assuming all the monitored servers are under IP subnet of $10.1.1.*$,
+Assuming all the monitored servers are under IP network of $10.1.1.*$,
 and We place a traffic sniifer over another IP network of $192.168.1.*$.
 The following subsection describes the configuration for each case.
 
 \subsection{Cisco Switch}
 We use Nexus 5000 switch and configure its ERSPAN tunnel
-on ports 11 and 12 as below.
+with session ID 10, remote IP pointing to the traffic sniffer, $192.168.1.1$,
+and local IP address as $192.168.1.2$.  As a result, both the ingress and
+egress traffic on ports 11 and 12 will be mirrored to the remote sniffer.
 \begin{verbatim}
     monitor session 10 type erspan-source
       erspan-id 10
@@ -399,23 +401,36 @@ on ports 11 and 12 as below.
     monitor erspan origin ip-address 192.168.1.2 global
 \end{verbatim}
 
-\subsection{openvswitch.ko}\label{ovs}
-Open vSwitch consists of a userspace daemon, ovs-vswitchd, and a kernel
-datapath implementation, openvswitch.ko.
-This example shows a case where we only use the netlink API and openvswitch.ko
-module, without the ovs-vswitchd daemon.
-ovs-dpctl is a stand-alone tool which programs openvswitch.ko
-through network api, see Joes' paper
+
+\subsection{Open vSwitch Kernel Module}\label{ovs}
+Open vSwitch consists of two components: a userspace daemon, called ovs-vswitchd,
+and a flow cache as a kernel module, called openvswitch.ko.  While ovs-vswitchd
+talks to the OpenFlow controller and programs its OpenFlow flow tables,
+the openvswitch.ko keeps a cache where the subsequent flows are handled
+inside the kernel space.
+
+The openvswitch.ko provides a user-facing netlink API that models a network
+bridge that connects multiple ports through a single table~\cite{ovswoovs}.
+This example shows how to use the netlink API provided by openvswitch.ko
+module, with the utility, ovs-dpctl, to create a ERSPAN tunnel.
 \begin{verbatim}
-ip link add dev myerspan type erspan external
+# creating datapath named "mydp", attach veth1(port 2)
 ovs-dpctl add-dp mydp
-ovs-dpctl add-if mydp myerspan
 ovs-dpctl add-if mydp veth1 // connected to VM1
+
+# creating erspan dev named "myerspan" and attach
+ip link add dev myerspan type erspan external
+ovs-dpctl add-if mydp myerspan
+
+# flow entry for port 2 to erspan tunnel 
 ovs-dpctl add-flow \
     "in_port(2)" \  // any packets matching in_port=2
     "set(tunnel(tun_id=20,dst=192.168.1.1,ttl=64,\
     erspan(ver=2,dir=1,hwid=0x4),flags(df|key))),3"
 \end{verbatim}
+
+%\begin{lstlisting}[caption={Example ovs-dpctl usage},language=bash,label=lst:dpctl,breaklines=true]
+%\end{lstlisting}
 
 \subsection{eBPF and iproute2}\label{iproute2}
 

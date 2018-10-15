@@ -1,8 +1,8 @@
 @misc{erspan_ietf,
-  author = 	 {David Miller},
-  title = 	 {[{GIT} net-next] {Open vSwitch}},
-  howpublished = {\url{https://www.spinics.net/lists/netdev/msg291696.html}},
-  month = 	 {August},
+  author = 	 {M. Foschiano},
+  title = 	 {{Cisco Systems' Encapsulated Remote Switch Port Analyzer (ERSPAN)}},
+  howpublished = {\url{https://tools.ietf.org/html/draft-foschiano-erspan-00}},
+  month = 	 {October},
   year = 	 2014
 }
 @misc{mvp,
@@ -75,6 +75,59 @@
   month = 	 {May},
   year = 	 2018
 }
+@inproceedings{ovs,
+  title={The design and implementation of open vswitch},
+  author={Pfaff, Ben and Pettit, Justin and Koponen, Teemu and Jackson, Ethan and Zhou, Andy and Rajahalme, Jarno and Gross, Jesse and Wang, Alex and Stringer, Joe and Shelar, Pravin and others},
+  booktitle={12th USENIX symposium on networked systems design and implementation (NSDI 15)},
+  pages={117--130},
+  year={2015}
+}
+@article{daniel1,
+  title={On getting tc classifier fully programmable with cls bpf.},
+  author={Borkmann, Daniel},
+  journal={NetDev 1.1},
+  year={2016}
+}
+
+@article{daniel2,
+  title={Advanced programmability and recent updates with tc's cls\_bpf.},
+  author={Borkmann, Daniel},
+  journal={NetDev 1.2},
+  year={2016}
+}
+@article{tcsubsys,
+  title={Linux Traffic Control Classifier-Action Subsystem Architecture},
+  author={Salim, Jamal Hadi}
+}
+@inproceedings{nvp,
+  title={Network Virtualization in Multi-tenant Datacenters.},
+  author={Koponen, Teemu and Amidon, Keith and Balland, Peter and Casado, Mart{\'\i}n and Chanda, Anupam and Fulton, Bryan and Ganichev, Igor and Gross, Jesse and Ingram, Paul and Jackson, Ethan J and others},
+  booktitle={NSDI},
+  volume={14},
+  pages={203--216},
+  year={2014}
+}
+@misc{wireshark_erspan,
+  author = 	 {Tu, W},
+  title = 	 {ERSPAN: add link to protocol spec and refactoring.},
+  howpublished = {Wireshark, commit 03bc58d07276},
+  month = 	 {July},
+  year = 	 2016
+}
+@misc{wireshark_erspan2,
+  author = 	 {Tu, W},
+  title = 	 {ERSPAN: support platform specific sub-header.},
+  howpublished = {Wireshark, commit 147cac3af73d},
+  month = 	 {July},
+  year = 	 2016
+}
+@article{ovswoovs,
+  title={{Openvswitch without Open vSwitch: The API and its users}},
+  author={Stringer, Joe},
+  journal={NetDev 2.1},
+  year={2017}
+}
+
 
 @inproceedings{mccanne1993bsd,
   title={The {BSD} packet filter: A new architecture for user-level packet capture},
@@ -164,10 +217,6 @@
                   Goldshtein and others},
   title = 	 {{BPF} Compiler Collection ({BCC})},
   howpublished = {\url{https://github.com/iovisor/bcc}}}
-
-@Misc{pan_nsx,
-  title = 	 {{VMware NSX} with Next-Generation Security from {Palo Alto Networks}},
-  howpublished = {\url{https://www.paloaltonetworks.com/resources/techbriefs/vmware-nsx-solution-brief}}}
 
 @misc{stt_reject,
   author = 	 {David Miller},
