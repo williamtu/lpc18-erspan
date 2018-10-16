@@ -299,7 +299,7 @@ Since ERSPAN does not use the GRE Key field, we re-use the
 Index is also configurable by users through iproute2.
 The COS field and VLAN field are extrated from the original frame and set
 properly.  The truncate bit is detected by comparing the the mirrored frame's
-skb->len and the length its IP header reports~\cite{erspantruncate}.
+\texttt{skb->len} and the length its IP header reports.
 %commit: erspan: auto detect truncated packets.
 
 \subsection{ERSPAN Type III}
