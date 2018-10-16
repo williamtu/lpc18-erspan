@@ -1,4 +1,4 @@
-\documentclass{sigplanconf}
+\documentclass[10pt]{sigplanconf}
 
 \usepackage{graphicx}
 \usepackage{url}
@@ -221,7 +221,7 @@ tunnel can be done by:
 Note that there is no configuration parameters assigned at device creation
 time. The tunnel configuration is set-up per-packet at run-time.
 Currently there are two ways of using metadata-mode tunnel, one through
-OVS and the other through eBPF~\cite{dborkman}.
+OVS and the other through eBPF~\cite{daniel2}.
 We implement both the native mode and metadata-mode~\cite{erspanmd}
 for ERSPAN type II and type III.
 More examples of using native and metadata-mode tunnel are upstreamed
@@ -504,7 +504,19 @@ int _erspan_set_tunnel(struct __sk_buff *skb)
 }
 \end{verbatim}
 }
-\section{Conclusion and Future Work}
+\section{Conclusion}
+Port mirroring is the most common troubleshooting techniques
+allowing a user to send a copy of the monitored traffic to a packet analyzer.
+ERSPAN extends its precedence SPAN and RSPAN, by allowing the monitored
+traffic to route across IP networks.
+In this paper, we describe the implementation of ERSPAN and demonstrate three
+ways to use the ERSPAN protocol in Linux, by creating a native-mode ERSPAN tunnel
+, or by creating eBPF byte-code with metadata-mode tunnel, or by using Open
+vSwitch kernel module. 
+We'd like to thank many people for giving review comments feedbacks for our
+ERSPAN patches.
+
+
 \mycomment{
 \section{Acknowledgments}
 The authors would like to acknowledge Justin Pettit for his guidance on writing
