@@ -111,8 +111,9 @@ installed from the userspace.
 \end{verbatim}   
 }
 \vspace{-0.5em}
-\caption{Overview of the ERSPAN tunnel use cases. ERSPAN tunnel can be
-created between }
+\caption{Overview of the ERSPAN tunnel use cases. ERSPAN tunnels can be
+created from a sniffer machine to Cisco switches, a Linux machine with
+multiple VMs, or simply a Linux machine.}
 \label{overview}
 \vspace{-1.0em}
 \end{figure}
@@ -134,9 +135,9 @@ traffic.  In the middle of the figure, for multiple virtual machines running
 inside a Linux box, the virtual switch forwarding the packet between
 virtual and physical network can also create ERSPAN tunnels between
 the software switch and remote traffic sniffer.
-Here, Open vSwitch~\cite{ovs} is an example capabale of creating filters
+Here, Open vSwitch~\cite{ovs} is an example capable of creating filters
 and forward packets to ERSPAN tunnels. More detailed configurations of
-Open vSwitch is described in later section. 
+Open vSwitch are described in later section. 
 
 The ERSPAN tunnel is represented in Linux as a netdev and configured
 through iproute2~\cite{iproute2}. Any packet that is placed into its send
@@ -147,7 +148,7 @@ For example, a physical netdev can use linux TC~\cite{tcsubsys} with mirror
 action to copy a packet to the erspan tunnel.
 
 Mirrored traffic arrives at the sniffer machine needs to be able to
-extract and restore the original monitored frame.  To differentiated
+extract and restore the original monitored frame.  To differentiate
 the three use cases, the administrator can create three ERSPAN session
 ID, a configuration parameter for grouping the mirrored traffic.
 For Linux user, an ERSPAN tunnel can also be used at the sniffer size.
@@ -167,7 +168,7 @@ can be used to inspect the mirrored packet.
 }
 \vspace{-1.0em}
 \caption{An example of mirrored packet with outer header containing
-the GRE and ERSPAN header, followed by the innter Ethernet frame.}
+the GRE and ERSPAN header, followed by the inner Ethernet frame.}
 \label{erspanhdr}
 \vspace{-1.0em}
 \end{figure}
@@ -190,12 +191,12 @@ ERSPAN type III, the GRE's next protocol type is 0x22EB with 12-byte ERSPAN head
 size, if no optinal subheader enabled.
 
 In this section we describe the basic ERSPAN protocol header format
-along with its implementation to Linux kernel.
+along with its implementation in the Linux kernel.
 For IPv4/IPv6, the implementation is under net/ipv4/ip\_gre.c and
 net/ipv6/ip6\_gre.c. Also a userspace API header, include/uapi/linux/erspan.h
 is added for metadata-mode tunnel users.
 
-\subsection{Native v.s Metadata-Mode Tunnel}
+\subsection{Native vs Metadata-Mode Tunnel}
 %https://netdevconf.org/1.2/papers/borkmann.pdf
 There are two tunnel type implementations in Linux kernel:
 native tunnel and metadata-mode tunnel~\cite{lwtunnel}.
