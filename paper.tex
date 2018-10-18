@@ -344,6 +344,35 @@ In addition, the SGT is hard-coded to 0, non-ethernet mirrored packet
 is not supported, so FT is always 0 and P is set to 1.
 There is no implementation of sub-headers, so O bit is 0.
 
+\mycomment{
+\subsection{Open vSwitch Kernel Module}
+%configuration
+Similar to other tunnel types such as VxLAN and Geneve,
+Open vSwitch kernel module, openvswitch.ko, configures the Linux
+ERSPAN tunnel by getting the binary tunnel configuration blob from
+its userspace daemon, ovs-vswitchd, verifies its parameters, and
+copies the tunnel data into flow key (struct sw\_flow\_key).
+As a result, the tunnel configuration is per-flow key set-up.
+
+When OVS kernel module process 
+% struct ip_tunnel_info
+
+% describe how OVS uses it
+% /net/openvswitch/flow_netlink.c
+commit fc1372f89ffe1f58b589643b75f679e452350703
+Author: William Tu <u9012063@gmail.com>
+Date:   Thu Jan 25 13:20:11 2018 -0800
+
+    openvswitch: add erspan version I and II support
+    
+    The patch adds support for openvswitch to configure erspan
+ %   v1 and v2.  The OVS_TUNNEL_KEY_ATTR_ERSPAN_OPTS attr is added
+    to uapi as a binary blob to support all ERSPAN v1 and v2's
+    fields.  Note that Previous commit "openvswitch: Add erspan tunnel
+    support." was reverted since it does not design properly.
+    
+
+}
 \section{Example Use Case}
 \begin{figure}
 {\scriptsize
