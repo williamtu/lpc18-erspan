@@ -72,7 +72,7 @@ of the packets.
 
 ERSPAN for IPv4 was added into Linux kernel in 4.14, and for IPv6 in 4.16.
 The implementation includes both transmission and reception and is based on the
-existing ip\_gre and ip6\_gre kernel module.  As a result, Linux today can act as
+existing ip\_gre and ip6\_gre kernel modules.  As a result, Linux today can act as
 an ERSPAN traffic source sending the ERSPAN mirrored traffic to the remote host,
 or an ERSPAN destination which receives and parses the ERSPAN packets generated
 from Cisco or other ERSPAN-capable switches.
@@ -133,25 +133,25 @@ between the Cisco switch and a traffic sniffer.  Depending on the
 features in the Cisco switch, different filters can be applied to the
 traffic.  In the middle of the figure, for multiple virtual machines running
 inside a Linux box, the virtual switch forwarding the packet between
-virtual and physical network can also create ERSPAN tunnels between
+virtual and physical networks can also create ERSPAN tunnels between
 the software switch and remote traffic sniffer.
 Here, Open vSwitch~\cite{ovs} is an example capable of creating filters
-and forward packets to ERSPAN tunnels. More detailed configurations of
+and forwarding packets to ERSPAN tunnels. More detailed configurations of
 Open vSwitch are described in later section. 
 
 The ERSPAN tunnel is represented in Linux as a netdev and configured
 through iproute2~\cite{iproute2}. Any packet that is placed into its send
 queue will be encapsulated based on the netdev's ERSPAN configuration.  
 As a result on the right-most, any other linux netdev which wants to create
-a ERSPAN mirrored packet simply make a copy and forward to the ERSPAN netdev.
+a ERSPAN mirrored packet simply makes a copy and forwards to the ERSPAN netdev.
 For example, a physical netdev can use linux TC~\cite{tcsubsys} with mirror
 action to copy a packet to the erspan tunnel.
 
-Mirrored traffic arrives at the sniffer machine needs to be able to
+Mirrored traffic arriving at the sniffer machine needs to be able to
 extract and restore the original monitored frame.  To differentiate
 the three use cases, the administrator can create three ERSPAN session
-ID, a configuration parameter for grouping the mirrored traffic.
-For Linux user, an ERSPAN tunnel can also be used at the sniffer size.
+IDs, a configuration parameter for grouping the mirrored traffic.
+For Linux users, an ERSPAN tunnel can also be used at the sniffer side.
 Any packet arriving at the ERSPAN tunnel netdev's receive queue will
 be decapsulated. Tools such as Wireshark~\cite{wireshark_erspan,wireshark_erspan2}
 can be used to inspect the mirrored packet.
@@ -173,11 +173,11 @@ the GRE and ERSPAN header, followed by the inner Ethernet frame.}
 \vspace{-1.0em}
 \end{figure}
 
-ERSPAN protocol was developed by Cisco and its specification is published at IETF
+The ERSPAN protocol was developed by Cisco and its specification is published at IETF
 draft~\cite{erspan_ietf}. 
 Figure~\ref{erspanhdr} shows an example of ERSPAN encapsulated
-packet, with outer header consists of Ethernet header, followed by IPv4/IPv6
-header, followed by a fixed 8-byte GRE header, and followed by ERSPAN header.
+packet, with outer header consisting of Ethernet header, following by IPv4/IPv6
+header, following by a fixed 8-byte GRE header, and following by ERSPAN header.
 After the ERSPAN header, the inner frame is followed so that the ERSPAN receiver
 or packet sniffer can extract the original frame.
 The use of the IP protocol as part of the outer header is important because it
@@ -188,7 +188,7 @@ version 2 (type III). ERSPAN protocol is layered on top of the GRE (Generic Rout
 Encapsulation) protocol, with GRE's sequence number enabled.  For ERSPAN type II,
 the GRE's next protocol type is 0x88BE with 8-byte ERSPAN header size, and for
 ERSPAN type III, the GRE's next protocol type is 0x22EB with 12-byte ERSPAN header
-size, if no optinal subheader enabled.
+size, if no optional subheader enabled.
 
 In this section we describe the basic ERSPAN protocol header format
 along with its implementation in the Linux kernel.
@@ -285,7 +285,7 @@ En field shows the trunk encapsulation type associated with the ERSPAN
 source port.
 When the mirrored frame is truncated, T bit is set to indicate the
 frame has been truncated.
-Session ID is a 10-bit field as an identification of each ERSPAN mirring
+Session ID is a 10-bit field as an identification of each ERSPAN mirroring
 session.
 Index is a platform-depedent field for specifying port number and direction.
 
@@ -297,7 +297,7 @@ Session ID is configured by users through iproute2 tool with netlink API.
 Since ERSPAN does not use the GRE Key field, we re-use the
 \texttt{IFLA\_GRE\_IKEY, IFLA\_GRE\_OKEY} as the session ID field.
 Index is also configurable by users through iproute2.
-The COS field and VLAN field are extrated from the original frame and set
+The COS field and VLAN field are extracted from the original frame and set
 properly.  The truncate bit is detected by comparing the the mirrored frame's
 \texttt{skb->len} and the length its IP header reports.
 %commit: erspan: auto detect truncated packets.
@@ -321,16 +321,16 @@ ERSPAN Version 2 (Type III) header (12 octets [42:49])
 Type III introduces more flexible composite header to support additional
 fields.  BSO, Bad/Short/Oversized, allows the sniffer to identify whether
 the frame payload has CRC error, too short, or too large~\cite{bso}.
-Timestamp is a 4-byte fields and can be configured with different granularities
+Timestamp is a 4-byte field and can be configured with different granularities
 (100 microseconds, 100 nanosecond, or IEEE1588) at the Gra field.
 SGT stands for security group tag of the monitored frame, P field
 indicates that the ERSPAN payload is an Ethernet protocol frame.
 FT,Frame Type, indicates whether the mirrored frame is a Ethernet
 802.3 frame, or a IP packet.
-Hardware ID, Hw ID, is an unique identifier of an ERSPAN engine
+Hardware ID, Hw ID, is an unique identifier of an ERSPAN engine,
 Direction bit, D, indicates whether the original frame was
 SPAN'ed in ingress(0) or in egress(1).
-Finally, O indicates whether or not the optinal platform-specific
+Finally, O indicates whether or not the optional platform-specific
 subheader is presented.
 
 \textbf{Implementation: }
@@ -339,7 +339,7 @@ netlink API; hardware ID and direction.
 The COS, BSO, and T fields can be extracted or inferred from the mirrored
 frame. Timestamp value is calculated by calling the kernel
 \texttt{ktime\_get\_real()} with 100 microseconds granularity.
-Currently we do not support other timer granulartiy.
+Currently we do not support other timer granularties.
 In addition, the SGT is hard-coded to 0, non-ethernet mirrored packet
 is not supported, so FT is always 0 and P is set to 1.
 There is no implementation of sub-headers, so O bit is 0.
@@ -405,7 +405,7 @@ in a $10.1.1.*$ internal network, mirroring traffic over a $192.168.1.*$ IP netw
 
 We use Figure~\ref{example} as an example topology to demostrate
 the three configuration ways of ERSPAN.
-Assuming a network administrator wants to monitor a network consists
+Assuming a network administrator wants to monitor a network consisting
 of 1) physical machines connected to Cisco switches, 2)
 virtualized Linux machine with multiple VMs deployed and virtual switch
 (openvswitch.ko) enforcing the fowarding policies, and
@@ -534,9 +534,9 @@ int _erspan_set_tunnel(struct __sk_buff *skb)
 \end{verbatim}
 }
 \section{Conclusion}
-Port mirroring is the most common troubleshooting techniques
+Port mirroring is the most common troubleshooting technique
 allowing a user to send a copy of the monitored traffic to a packet analyzer.
-ERSPAN extends its precedence SPAN and RSPAN, by allowing the monitored
+ERSPAN extends its precedences, SPAN and RSPAN, by allowing the monitored
 traffic to route across IP networks.
 In this paper, we describe the implementation of ERSPAN and demonstrate three
 ways to use the ERSPAN protocol in Linux, by creating a native-mode ERSPAN tunnel
