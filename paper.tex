@@ -210,7 +210,7 @@ $N$ number of netdevs.  In certain cases such as network virtualization,
 this is not scalable because every host in the network creates
 mutiple tunnels with different configurations to every other hosts~\cite{nvp}.
 
-Metada-mode tunnel, or light weight tunnel, is designed for solving
+Metadata-mode tunnel, or called light-weight tunnel, is designed for solving
 the limitation.  The fundamental idea is that only one netdev per
 tunnel type is required to represent multiple tunnels.
 This means that the tunnel configuration of a particular type
@@ -419,7 +419,8 @@ The following subsection describes the configuration for each case.
 We use Nexus 5000 switch and configure its ERSPAN tunnel
 with session ID 10, remote IP pointing to the traffic sniffer, $192.168.1.1$,
 and local IP address as $192.168.1.2$.  As a result, both the ingress and
-egress traffic on ports 11 and 12 will be mirrored to the remote sniffer.
+egress traffic on ports 11 and 12 will be msdfirrored to the remote sniffer.
+{\footnotesize
 \begin{verbatim}
     monitor session 10 type erspan-source
       erspan-id 10
@@ -430,7 +431,7 @@ egress traffic on ports 11 and 12 will be mirrored to the remote sniffer.
       no shut
     monitor erspan origin ip-address 192.168.1.2 global
 \end{verbatim}
-
+}
 
 \subsection{Open vSwitch Kernel Module}\label{ovs}
 Open vSwitch consists of two components: a userspace daemon, called ovs-vswitchd,
@@ -443,6 +444,8 @@ The openvswitch.ko provides a user-facing netlink API that models a network
 bridge that connects multiple ports through a single table~\cite{ovswoovs}.
 This example shows how to use the netlink API provided by openvswitch.ko
 module, with the utility, ovs-dpctl, to create a ERSPAN tunnel.
+
+{\footnotesize
 \begin{verbatim}
 # creating datapath named "mydp", attach veth1(port 2)
 ovs-dpctl add-dp mydp
@@ -458,7 +461,7 @@ ovs-dpctl add-flow \
     "set(tunnel(tun_id=20,dst=192.168.1.1,ttl=64,\
     erspan(ver=2,dir=1,hwid=0x4),flags(df|key))),3"
 \end{verbatim}
-
+}
 %\begin{lstlisting}
 %[caption={Example ovs-dpctl usage},language=bash,label=lst:dpctl,breaklines=true]
 %\end{lstlisting}
@@ -476,6 +479,8 @@ when receiving a packet from eth1 and sending through the "myerspan"
 tunnel device.
 
 %see net/ip6_gre_headroom.sh
+
+{\footnotesize
 \begin{verbatim}
 # Native-mode without using eBPF
 ip link add dev myerspan type erspan seq key 30 \
@@ -492,44 +497,44 @@ tc filter add dev myerspan egress bpf direct-action \
 tc filter add dev eth1 ingress pref 1000 matchall \
     skip_hw action mirred egress mirror dev myerspan
 \end{verbatim}
-
+}
 Note that for metadata-mode tunnel, the tunnel configuration is not
 provided from the ip route command line, but is passed in to the tunnel
 by the eBPF program, test\_tunnel\_kern.o. A code snippet creating this
 object from tools/testing/selftests/bpf/test\_tunnel\_kern.c is shown below.
-{\scriptsize
+{\footnotesize
 \begin{verbatim}
 SEC("erspan_set_tunnel")
 int _erspan_set_tunnel(struct __sk_buff *skb)
 {
-        struct bpf_tunnel_key key;
-        struct erspan_metadata md; 
-        int ret;
+    struct bpf_tunnel_key key;
+    struct erspan_metadata md; 
+    int ret;
 
-        __builtin_memset(&key, 0x0, sizeof(key));
-        key.remote_ipv4 = 0xc0a80101; /* 192.168.1.100 */
-        key.tunnel_id = 30; // session ID
-        key.tunnel_tos = 0;
-        key.tunnel_ttl = 64;
+    __builtin_memset(&key, 0x0, sizeof(key));
+    key.remote_ipv4 = 0xc0a80101; /* 192.168.1.100 */
+    key.tunnel_id = 30; // session ID
+    key.tunnel_tos = 0;
+    key.tunnel_ttl = 64;
 
-        ret = bpf_skb_set_tunnel_key(skb, &key, sizeof(key),
-                                     BPF_F_ZERO_CSUM_TX);
-        if (ret < 0) {
-                ERROR(ret);
-                return TC_ACT_SHOT;
-        }
+    ret = bpf_skb_set_tunnel_key(skb, &key, sizeof(key),
+                     BPF_F_ZERO_CSUM_TX);
+    if (ret < 0) {
+        ERROR(ret);
+        return TC_ACT_SHOT;
+    }
 
-        __builtin_memset(&md, 0, sizeof(md));
-        md.version = 1;
-        md.u.index = bpf_htonl(123);
+    __builtin_memset(&md, 0, sizeof(md));
+    md.version = 1;
+    md.u.index = bpf_htonl(123);
 
-        ret = bpf_skb_set_tunnel_opt(skb, &md, sizeof(md));
-        if (ret < 0) {
-                ERROR(ret);
-                return TC_ACT_SHOT;
-        }
+    ret = bpf_skb_set_tunnel_opt(skb, &md, sizeof(md));
+    if (ret < 0) {
+        ERROR(ret);
+        return TC_ACT_SHOT;
+    }
 
-        return TC_ACT_OK;
+    return TC_ACT_OK;
 }
 \end{verbatim}
 }
