@@ -452,14 +452,19 @@ ovs-dpctl add-dp mydp
 ovs-dpctl add-if mydp veth1 // connected to VM1
 
 # creating erspan dev named "myerspan" and attach
+# lightweight tunnel is used with "external" keyword
 ip link add dev myerspan type erspan external
 ovs-dpctl add-if mydp myerspan
 
-# flow entry for port 2 to erspan tunnel 
+# flow entry for port 1 to erspan tunnel port 3 
 ovs-dpctl add-flow \
-    "in_port(2)" \
-    "set(tunnel(tun_id=20,dst=192.168.1.1,ttl=64,\
-    erspan(ver=2,dir=1,hwid=0x4),flags(df|key))),3"
+  "in_port(1),eth(src=00:01:02:03:04:05,dst=10:11:12:13:14:15),\
+  eth_type(0x0800),ipv4(src=35.8.2.41,dst=172.16.0.20,proto=5,\
+  tos=0x80,ttl=128,frag=no)" \
+  "set(tunnel(tun_id=20,dst=192.168.1.1,ttl=64,\
+  erspan(ver=2,dir=1,hwid=0x4),flags(df|key))),3"
+
+ovs-dpctl dump-flows
 \end{verbatim}
 }
 %\begin{lstlisting}
@@ -486,7 +491,10 @@ tunnel device.
 ip link add dev myerspan type erspan seq key 30 \
     local 192.168.1.4 remote 192.168.1.1 \
     erspan_ver 1 erspan 123
-tc filter add dev eth1 ingress pref 1000 matchall \
+
+# eth1 is the mirrored device
+tc qdisc add dev eth1 handle ffff: ingress
+tc filter add dev eth1 handle ffff: ingress matchall \
     skip_hw action mirred egress mirror dev myerspan
 
 # Metadata-mode with eBPF
@@ -494,7 +502,9 @@ ip link add dev myerspan type erspan external
 tc qdisc add dev myerspan clsact
 tc filter add dev myerspan egress bpf direct-action \
     obj test_tunnel_kern.o section erspan_set_tunnel
-tc filter add dev eth1 ingress pref 1000 matchall \
+    
+tc qdisc add dev eth1 handle ffff: ingress
+tc filter add dev eth1 parent ffff: matchall \
     skip_hw action mirred egress mirror dev myerspan
 \end{verbatim}
 }
